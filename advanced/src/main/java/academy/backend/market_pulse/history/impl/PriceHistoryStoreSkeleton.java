@@ -1,7 +1,16 @@
 package academy.backend.market_pulse.history.impl;
 
+import java.io.*;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import academy.backend.market_pulse.history.PriceHistoryStore;
 import academy.backend.market_pulse.history.PricePoint;
@@ -18,16 +27,49 @@ public class PriceHistoryStoreSkeleton implements PriceHistoryStore {
 
     @Override
     public Path append(Path directory, PricePoint point) {
-        // TODO: записать точку в новый файл внутри directory — существующие файлы не трогать.
-        //  Подсказка: имя файла на основе point.timestamp() даёт сортировку по имени = сортировку
-        //  по времени.
-        throw new UnsupportedOperationException("TODO: реализовать запись точки истории цены");
+        try {
+            Files.createDirectories(directory);
+            Path path = Files.createTempFile(directory, "point-", ".txt");
+            try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
+                writer.write(point.ticker() + ";" + point.timestamp() + ";" + point.price());
+            }
+            return path;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
+
 
     @Override
     public List<PricePoint> load(Path directory, String ticker) {
-        // TODO: прочитать все точки по тикеру в порядке возрастания времени.
-        //  Если для тикера ещё нет точек — вернуть пустой список, а не бросать исключение.
-        throw new UnsupportedOperationException("TODO: реализовать чтение истории цены");
+        List<PricePoint> points = new ArrayList<>();
+        if (Files.notExists(directory) || !Files.isDirectory(directory)) {
+            return points;
+        }
+        try (Stream<Path> files = Files.list(directory)) {
+            points = files
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().startsWith("point-"))
+                    .map(this::readPoint)
+                    .filter(point -> point.ticker().equals(ticker))
+                    .collect(Collectors.toList());
+            points.sort(Comparator.comparing(PricePoint::timestamp));
+            return points;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private PricePoint readPoint(Path file) {
+        try {
+            List<String> lines = Files.readAllLines(file);
+            String[] parts = lines.get(0).split(";");
+            String ticker = parts[0];
+            Instant timestamp = Instant.parse(parts[1]);
+            BigDecimal price = new BigDecimal(parts[2]);
+            return new PricePoint(ticker, timestamp, price);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }
